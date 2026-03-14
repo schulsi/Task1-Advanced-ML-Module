@@ -5,234 +5,314 @@ import joblib
 import time
 
 st.set_page_config(
-    page_title="DoS Shield",
-    layout="wide",
+    page_title="DoS Detection",
+    page_icon="🛡️",
+    layout="centered",
 )
 
-FEATURES = {
-    "Avg Bwd Segment Size": ("Average Backward Segment Size (Bytes)", 0.0, 0.0, 65535.0, 1.0),
-    "Max Packet Length": ("Max Packet Length (Bytes)", 0.0, 0.0, 65535.0, 1.0),
-    "Bwd Packet Length Max": ("Backward Max Packet Length (Bytes)", 0.0, 0.0, 65535.0, 1.0),
-    "Packet Length Std": ("Packet Length Standard Deviation", 0.0, 0.0, 65535.0, 0.1),
-    "Packet Length Mean": ("Average Packet Length (Bytes)", 0.0, 0.0, 65535.0, 0.1),
-    "Bwd Packet Length Mean": ("Backward Average Packet Length (Bytes)", 0.0, 0.0, 65535.0, 0.1),
-    "Average Packet Size": ("Average Packet Size (Bytes)", 0.0, 0.0, 65535.0, 0.1),
-    "Packet Length Variance": ("Packet Length Variance", 0.0, 0.0, 1e8, 1.0),
-    "Subflow Bwd Bytes": ("Subflow Backward Bytes", 0.0, 0.0, 1e7, 1.0),
-    "Total Length of Bwd Packets": ("Total Length of Backward Packets (Bytes)", 0.0, 0.0, 1e7, 1.0),
-    "Fwd Packet Length Max": ("Forward Max Packet Length (Bytes)", 0.0, 0.0, 65535.0, 1.0),
-    "Bwd Packet Length Std": ("Backward Packet Length Standard Deviation", 0.0, 0.0, 65535.0, 0.1),
-    "Init_Win_bytes_forward": ("Initial Forward TCP Window (Bytes)", 0.0, -1.0, 65535.0, 1.0),
-    "Flow Duration": ("Flow Duration (Microseconds)", 0.0, 0.0, 1.2e8, 100.0),
-    "Flow Bytes/s": ("Flow Bytes per Second", 0.0, 0.0, 1e8, 1.0),
-    "Flow IAT Mean": ("Average Flow IAT (Microseconds)", 0.0, 0.0, 5e6, 1.0),
-    "Fwd IAT Total": ("Total Forward IAT (Microseconds)", 0.0, 0.0, 1.2e8, 1.0),
-    "Flow IAT Std": ("Flow IAT Standard Deviation (Microseconds)", 0.0, 0.0, 5e6, 1.0),
-    "Idle Mean": ("Average Idle Time (Microseconds)", 0.0, 0.0, 1.2e8, 1.0),
-    "Active Mean": ("Average Active Time (Microseconds)", 0.0, 0.0, 1.2e8, 1.0),
+TOP_FEATURES = [
+    "Avg Bwd Segment Size", "Max Packet Length", "Bwd Packet Length Max",
+    "Packet Length Std", "Packet Length Mean", "Bwd Packet Length Mean",
+    "Average Packet Size", "Packet Length Variance", "Subflow Bwd Bytes",
+    "Total Length of Bwd Packets", "Fwd Packet Length Max", "Bwd Packet Length Std",
+    "Init_Win_bytes_forward", "Flow Duration", "Flow Bytes/s", "Flow IAT Mean",
+    "Fwd IAT Total", "Flow IAT Std", "Idle Mean", "Active Mean",
+]
+
+# Real median values confirmed to predict correctly with this model
+EXAMPLES = {
+    "BENIGN": {
+        "Avg Bwd Segment Size":        71.0,
+        "Max Packet Length":           72.0,
+        "Bwd Packet Length Max":       71.0,
+        "Packet Length Std":           17.5,
+        "Packet Length Mean":          51.0,
+        "Bwd Packet Length Mean":      71.0,
+        "Average Packet Size":         63.5,
+        "Packet Length Variance":      307.0,
+        "Subflow Bwd Bytes":           140.0,
+        "Total Length of Bwd Packets": 140.0,
+        "Fwd Packet Length Max":       33.0,
+        "Bwd Packet Length Std":       0.0,
+        "Init_Win_bytes_forward":      -1.0,
+        "Flow Duration":               230.0,
+        "Flow Bytes/s":                20389.0,
+        "Flow IAT Mean":               85.0,
+        "Fwd IAT Total":               3.0,
+        "Flow IAT Std":                92.7,
+        "Idle Mean":                   0.0,
+        "Active Mean":                 0.0,
+    },
+    "DoS GoldenEye": {
+        "Avg Bwd Segment Size":        1661.7,
+        "Max Packet Length":           4392.0,
+        "Bwd Packet Length Max":       4392.0,
+        "Packet Length Std":           1580.9,
+        "Packet Length Mean":          746.9,
+        "Bwd Packet Length Mean":      1661.7,
+        "Average Packet Size":         795.4,
+        "Packet Length Variance":      2499208.0,
+        "Subflow Bwd Bytes":           11632.0,
+        "Total Length of Bwd Packets": 11632.0,
+        "Fwd Packet Length Max":       382.0,
+        "Bwd Packet Length Std":       2184.4,
+        "Init_Win_bytes_forward":      29200.0,
+        "Flow Duration":               11485031.0,
+        "Flow Bytes/s":                1010.9,
+        "Flow IAT Mean":               1035509.0,
+        "Fwd IAT Total":               6542860.0,
+        "Flow IAT Std":                2180951.5,
+        "Idle Mean":                   6487531.5,
+        "Active Mean":                 766.0,
+    },
 }
 
-FEATURE_GROUPS = {
-    "Packet Sizes": [
-        "Max Packet Length",
-        "Fwd Packet Length Max",
-        "Packet Length Mean",
-        "Packet Length Std",
-        "Packet Length Variance",
-        "Average Packet Size",
-    ],
-    "Backward Direction": [
-        "Avg Bwd Segment Size",
-        "Bwd Packet Length Max",
-        "Bwd Packet Length Mean",
-        "Bwd Packet Length Std",
-        "Subflow Bwd Bytes",
-        "Total Length of Bwd Packets",
-    ],
-    "Timing and Flow": [
-        "Flow Duration",
-        "Flow Bytes/s",
-        "Flow IAT Mean",
-        "Flow IAT Std",
-        "Fwd IAT Total",
-        "Idle Mean",
-        "Active Mean",
-    ],
-    "TCP": [
-        "Init_Win_bytes_forward",
-    ],
-}
+DEFAULTS = {f: 0.0 for f in TOP_FEATURES}
+DEFAULTS["Init_Win_bytes_forward"] = -1.0
+DEFAULTS["Flow Duration"]          = 230.0
+DEFAULTS["Flow Bytes/s"]           = 20389.0
+DEFAULTS["Flow IAT Mean"]          = 85.0
+DEFAULTS["Flow IAT Std"]           = 92.7
+DEFAULTS["Fwd IAT Total"]          = 3.0
+DEFAULTS["Avg Bwd Segment Size"]   = 71.0
+DEFAULTS["Max Packet Length"]      = 72.0
+DEFAULTS["Bwd Packet Length Max"]  = 71.0
+DEFAULTS["Packet Length Std"]      = 17.5
+DEFAULTS["Packet Length Mean"]     = 51.0
+DEFAULTS["Bwd Packet Length Mean"] = 71.0
+DEFAULTS["Average Packet Size"]    = 63.5
+DEFAULTS["Packet Length Variance"] = 307.0
+DEFAULTS["Subflow Bwd Bytes"]      = 140.0
+DEFAULTS["Total Length of Bwd Packets"] = 140.0
+DEFAULTS["Fwd Packet Length Max"]  = 33.0
 
 
 @st.cache_resource
 def load_models():
     try:
-        binary_model = joblib.load("binary_model.pkl")
-        attack_model = joblib.load("attack_model.pkl")
-        return binary_model, attack_model
+        return joblib.load("binary_model.pkl"), joblib.load("attack_model.pkl")
     except FileNotFoundError:
         return None, None
-
 
 binary_model, attack_model = load_models()
 
 
 def predict(values: dict):
-    df = pd.DataFrame([values])
-
-    stage1 = binary_model.predict(df)[0]
-    stage1_prob = binary_model.predict_proba(df)[0]
-    conf1 = float(max(stage1_prob))
-
-    if stage1 == "BENIGN":
+    df    = pd.DataFrame([values])[TOP_FEATURES]
+    s1    = binary_model.predict(df)[0]
+    conf1 = float(max(binary_model.predict_proba(df)[0]))
+    if s1 == "BENIGN":
         return "BENIGN", conf1, None, None
-
-    stage2 = attack_model.predict(df)[0]
-    stage2_prob = attack_model.predict_proba(df)[0]
-    conf2 = float(max(stage2_prob))
-
-    return "ATTACK", conf1, stage2, conf2
+    s2    = attack_model.predict(df)[0]
+    conf2 = float(max(attack_model.predict_proba(df)[0]))
+    return "ATTACK", conf1, s2, conf2
 
 
-st.title("DoS Shield - Network Analysis")
-st.caption("Two-stage DoS detection using Random Forest")
+# ── Init session state ─────────────────────────────────────────────────────
+if "vals" not in st.session_state:
+    st.session_state.vals = dict(DEFAULTS)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+st.title("🛡️ DoS Detection")
+st.caption("Two-stage DoS attack detection · Random Forest · CIC-IDS2017")
 st.divider()
 
 if binary_model is None:
-    st.error(
-        "Model not found. Place binary_model.pkl and attack_model.pkl in the same folder as app.py."
-    )
+    st.error("Models not found. Place `binary_model.pkl` and `attack_model.pkl` next to `app.py`.")
     st.stop()
 
-tab_manual, tab_csv = st.tabs(["Manual Input", "CSV Upload"])
+# ── Quick Fill ─────────────────────────────────────────────────────────────
+st.subheader("Quick Fill")
+st.caption("Pre-fill all sliders with a real sample from the dataset:")
 
-with tab_manual:
-    st.subheader("Enter Flow Features")
+col1, col2, col3 = st.columns(3)
+with col1:
+    if st.button("✅ BENIGN example", use_container_width=True):
+        st.session_state.vals = dict(EXAMPLES["BENIGN"])
+        st.rerun()
+with col2:
+    if st.button("🔴 GoldenEye example", use_container_width=True):
+        st.session_state.vals = dict(EXAMPLES["DoS GoldenEye"])
+        st.rerun()
+with col3:
+    if st.button("🔄 Reset to defaults", use_container_width=True):
+        st.session_state.vals = dict(DEFAULTS)
+        st.rerun()
 
-    values = {}
-    for group_name, feat_list in FEATURE_GROUPS.items():
-        with st.expander(group_name, expanded=True):
-            cols = st.columns(2)
-            for idx, feat in enumerate(feat_list):
-                desc, default, fmin, fmax, step = FEATURES[feat]
-                with cols[idx % 2]:
-                    values[feat] = st.number_input(
-                        label=desc,
-                        min_value=float(fmin),
-                        max_value=float(fmax),
-                        value=float(default),
-                        step=float(step),
-                        key=f"manual_{feat}",
-                    )
+v = st.session_state.vals
 
-    st.divider()
+st.divider()
+st.subheader("Flow Features")
 
-    if st.button("Analyze Flow", use_container_width=True):
-        with st.spinner("Analyzing flow..."):
-            time.sleep(0.3)
-            verdict, conf1, attack_type, conf2 = predict(values)
+# ── Group 1: Backward packet stats (top 3 features = 67% of decision) ─────
+with st.expander("Backward Packet Stats  –  drives 67% of the model decision", expanded=True):
+    st.caption("These three features are by far the most important. Set all three high to trigger ATTACK.")
+    c1, c2 = st.columns(2)
+    with c1:
+        v["Bwd Packet Length Std"] = st.slider(
+            "Bwd Packet Length Std Dev",
+            0, 10000, int(v["Bwd Packet Length Std"]), step=10,
+            help="BENIGN: 0 · GoldenEye: ~2184  ← key trigger",
+        )
+        v["Avg Bwd Segment Size"] = st.slider(
+            "Avg Bwd Segment Size (Bytes)",
+            0, 10000, int(v["Avg Bwd Segment Size"]), step=10,
+            help="BENIGN: ~71 B · GoldenEye: ~1662 B  ← key trigger",
+        )
+    with c2:
+        v["Bwd Packet Length Mean"] = st.slider(
+            "Bwd Packet Length Mean (Bytes)",
+            0, 10000, int(v["Bwd Packet Length Mean"]), step=10,
+            help="BENIGN: ~71 B · GoldenEye: ~1662 B  ← key trigger",
+        )
+        v["Bwd Packet Length Max"] = st.slider(
+            "Bwd Packet Length Max (Bytes)",
+            0, 65535, int(v["Bwd Packet Length Max"]), step=10,
+            help="BENIGN: ~71 B · GoldenEye: ~4392 B",
+        )
 
-        st.subheader("Result")
+# ── Group 2: Packet size spread ────────────────────────────────────────────
+with st.expander("Packet Size Spread", expanded=False):
+    c1, c2 = st.columns(2)
+    with c1:
+        v["Packet Length Variance"] = st.slider(
+            "Packet Length Variance",
+            0, 5_000_000, int(v["Packet Length Variance"]), step=1000,
+            help="BENIGN: ~307 · GoldenEye: ~2,499,208",
+        )
+        v["Packet Length Std"] = st.slider(
+            "Packet Length Std Dev",
+            0, 10000, int(v["Packet Length Std"]), step=10,
+            help="BENIGN: ~18 · GoldenEye: ~1581",
+        )
+        v["Max Packet Length"] = st.slider(
+            "Max Packet Length (Bytes)",
+            0, 65535, int(v["Max Packet Length"]), step=10,
+            help="BENIGN: ~72 B · GoldenEye: ~4392 B",
+        )
+    with c2:
+        v["Packet Length Mean"] = st.slider(
+            "Packet Length Mean (Bytes)",
+            0, 10000, int(v["Packet Length Mean"]), step=10,
+            help="BENIGN: ~51 B · GoldenEye: ~747 B",
+        )
+        v["Average Packet Size"] = st.slider(
+            "Average Packet Size (Bytes)",
+            0, 10000, int(v["Average Packet Size"]), step=10,
+            help="BENIGN: ~64 B · GoldenEye: ~795 B",
+        )
+        v["Fwd Packet Length Max"] = st.slider(
+            "Fwd Packet Length Max (Bytes)",
+            0, 65535, int(v["Fwd Packet Length Max"]), step=10,
+            help="BENIGN: ~33 B · GoldenEye: ~382 B",
+        )
 
-        col_stage1, col_stage2 = st.columns(2)
+# ── Group 3: Volume ────────────────────────────────────────────────────────
+with st.expander("Volume", expanded=False):
+    c1, c2 = st.columns(2)
+    with c1:
+        v["Subflow Bwd Bytes"] = st.slider(
+            "Subflow Bwd Bytes",
+            0, 100_000, int(v["Subflow Bwd Bytes"]), step=100,
+            help="BENIGN: ~140 B · GoldenEye: ~11,632 B",
+        )
+    with c2:
+        v["Total Length of Bwd Packets"] = st.slider(
+            "Total Length of Bwd Packets (Bytes)",
+            0, 100_000, int(v["Total Length of Bwd Packets"]), step=100,
+            help="BENIGN: ~140 B · GoldenEye: ~11,632 B",
+        )
 
-        with col_stage1:
-            st.markdown("**Stage 1 - BENIGN / ATTACK**")
-            if verdict == "BENIGN":
-                st.success(f"BENIGN | Confidence: {conf1:.1%}")
-            else:
-                st.error(f"ATTACK detected | Confidence: {conf1:.1%}")
-            st.progress(conf1)
+# ── Group 4: Timing ────────────────────────────────────────────────────────
+with st.expander("Timing", expanded=False):
+    c1, c2 = st.columns(2)
+    with c1:
+        v["Flow Duration"] = st.slider(
+            "Flow Duration (µs)",
+            0, 120_000_000, int(v["Flow Duration"]), step=1000,
+            help="BENIGN: ~230 µs · GoldenEye: ~11,485,031 µs",
+        )
+        v["Flow IAT Mean"] = st.slider(
+            "Flow IAT Mean (µs)",
+            0, 120_000_000, int(v["Flow IAT Mean"]), step=1000,
+            help="BENIGN: ~85 µs · GoldenEye: ~1,035,509 µs",
+        )
+        v["Flow IAT Std"] = st.slider(
+            "Flow IAT Std Dev (µs)",
+            0, 120_000_000, int(v["Flow IAT Std"]), step=1000,
+            help="BENIGN: ~93 µs · GoldenEye: ~2,180,952 µs",
+        )
+    with c2:
+        v["Fwd IAT Total"] = st.slider(
+            "Fwd IAT Total (µs)",
+            0, 120_000_000, int(v["Fwd IAT Total"]), step=1000,
+            help="BENIGN: ~3 µs · GoldenEye: ~6,542,860 µs",
+        )
+        v["Idle Mean"] = st.slider(
+            "Idle Mean (µs)",
+            0, 120_000_000, int(v["Idle Mean"]), step=1000,
+            help="BENIGN: 0 · GoldenEye: ~6,487,532 µs",
+        )
+        v["Active Mean"] = st.slider(
+            "Active Mean (µs)",
+            0, 10_000, int(v["Active Mean"]), step=10,
+            help="BENIGN: 0 · GoldenEye: ~766 µs",
+        )
 
-        with col_stage2:
-            st.markdown("**Stage 2 - Attack Type**")
-            if verdict == "BENIGN":
-                st.info("No attack. Stage 2 not used.")
-            else:
-                st.error(f"{attack_type} | Confidence: {conf2:.1%}")
-                st.progress(conf2)
+# ── Group 5: TCP & Rate ────────────────────────────────────────────────────
+with st.expander("TCP & Flow Rate", expanded=False):
+    c1, c2 = st.columns(2)
+    with c1:
+        v["Flow Bytes/s"] = st.slider(
+            "Flow Bytes/s",
+            0, 500_000, int(v["Flow Bytes/s"]), step=100,
+            help="BENIGN: ~20,389 · GoldenEye: ~1,011",
+        )
+    with c2:
+        valid_wins = [-1, 239, 1024, 8192, 14600, 29200, 65535]
+        cur_win = int(v["Init_Win_bytes_forward"])
+        if cur_win not in valid_wins:
+            cur_win = -1
+        v["Init_Win_bytes_forward"] = float(st.select_slider(
+            "Initial TCP Window (Bytes)",
+            options=valid_wins,
+            value=cur_win,
+            format_func=lambda x: f"{x} B" if x >= 0 else "-1 (auto / BENIGN default)",
+            help="BENIGN: -1 · GoldenEye: 29200 · Hulk/Slowloris: 14600",
+        ))
 
-        with st.expander("Show Input Values"):
-            st.dataframe(
-                pd.DataFrame([values]).T.rename(columns={0: "Value"}),
-                use_container_width=True,
-            )
+st.divider()
 
-with tab_csv:
-    st.subheader("Upload CSV File")
-    st.info(
-        "CSV must contain the 20 feature columns. Optional column 'Label' can be used for accuracy comparison."
-    )
+# ── Analyze ────────────────────────────────────────────────────────────────
+if st.button("Analyze Flow", use_container_width=True):
+    with st.spinner("Running model…"):
+        time.sleep(0.3)
+        verdict, conf1, attack_type, conf2 = predict(v)
 
-    uploaded = st.file_uploader("Choose a CSV file", type=["csv"])
+    st.subheader("Result")
+    r1, r2 = st.columns(2)
 
-    if uploaded is not None:
-        df_upload = pd.read_csv(uploaded)
-        df_upload.columns = df_upload.columns.str.strip()
-
-        feature_cols = list(FEATURES.keys())
-        missing = [c for c in feature_cols if c not in df_upload.columns]
-
-        if missing:
-            st.error(f"Missing columns: {missing}")
+    with r1:
+        st.markdown("**Stage 1 – Attack or normal traffic?**")
+        if verdict == "BENIGN":
+            st.success("BENIGN – No attack detected")
         else:
-            st.success(f"Loaded {len(df_upload):,} rows.")
+            st.error("ATTACK – Attack detected!")
+        st.caption(f"Confidence: {conf1:.1%}")
+        st.progress(conf1)
 
-            X_upload = df_upload[feature_cols].copy()
-            X_upload = X_upload.replace([np.inf, -np.inf], np.nan).fillna(0)
+    with r2:
+        st.markdown("**Stage 2 – Attack type**")
+        if verdict == "BENIGN":
+            st.info("No attack → Stage 2 not executed")
+        else:
+            st.error(f"{attack_type}")
+            st.caption(f"Confidence: {conf2:.1%}")
+            st.progress(conf2)
 
-            with st.spinner("Classifying flows..."):
-                stage1_preds = binary_model.predict(X_upload)
-                final_preds = list(stage1_preds)
-
-                attack_mask = stage1_preds == "ATTACK"
-                if attack_mask.any():
-                    stage2_preds = attack_model.predict(X_upload[attack_mask])
-                    for i, pred in zip(np.where(attack_mask)[0], stage2_preds):
-                        final_preds[i] = pred
-
-            df_upload["Prediction"] = final_preds
-
-            st.divider()
-            st.subheader("Result Summary")
-
-            counts = pd.Series(final_preds).value_counts()
-            total = len(final_preds)
-            benign_n = counts.get("BENIGN", 0)
-            attack_n = total - benign_n
-
-            col_m1, col_m2, col_m3 = st.columns(3)
-            col_m1.metric("Total Flows", f"{total:,}")
-            col_m2.metric("BENIGN", f"{benign_n:,}", f"{benign_n/total:.1%}")
-            col_m3.metric("ATTACKS", f"{attack_n:,}", f"{attack_n/total:.1%}")
-
-            st.bar_chart(counts)
-
-            if "Label" in df_upload.columns:
-                st.divider()
-                st.subheader("Comparison with True Labels")
-
-                y_true = df_upload["Label"].astype(str).str.strip()
-                y_pred = pd.Series(final_preds)
-                acc = (y_true.values == y_pred.values).mean()
-
-                st.metric("Accuracy", f"{acc:.2%}")
-
-                from sklearn.metrics import classification_report
-
-                report_df = pd.DataFrame(
-                    classification_report(y_true, y_pred, output_dict=True)
-                ).T.round(3)
-
-                st.dataframe(report_df, use_container_width=True)
-
-            st.divider()
-            csv_out = df_upload.to_csv(index=False).encode("utf-8")
-
-            st.download_button(
-                label="Download Results as CSV",
-                data=csv_out,
-                file_name="dos_shield_results.csv",
-                mime="text/csv",
-                use_container_width=True,
-            )
+    with st.expander("Show all submitted values"):
+        st.dataframe(
+            pd.DataFrame(v.items(), columns=["Feature", "Value"]),
+            use_container_width=True, hide_index=True,
+        )
